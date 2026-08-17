@@ -41,6 +41,23 @@ export function getInvoices(params = {}) {
 }
 
 /**
+ * Отправляет крипту на баланс пользователя внутри @CryptoBot (реальная выплата
+ * при выводе). userId — Telegram user id получателя (тот же, что в initData).
+ * spendId — обязательный уникальный ключ идемпотентности: повторный вызов с тем
+ * же spendId НЕ создаст второй перевод, даже если сеть оборвалась и запрос ушёл
+ * дважды. См. актуальную доку перед продакшеном — метод/параметры могут меняться.
+ */
+export function transferCrypto({ userId, asset, amount, spendId, comment }) {
+  return callApi('transfer', {
+    user_id: userId,
+    asset,
+    amount: String(amount),
+    spend_id: spendId,
+    comment: comment || 'REDPILL withdrawal',
+  });
+}
+
+/**
  * Проверка подписи вебхука Crypto Pay.
  * signature = HMAC_SHA256(rawBody, key = SHA256(CRYPTO_PAY_TOKEN)) в hex.
  * rawBody должен быть ИМЕННО тем сырым телом запроса, что прислал CryptoBot —

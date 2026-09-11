@@ -219,6 +219,32 @@ export function pickMinesCell(tgId, cellIndex) {
   return { ok: true, picksLeft: cap - bet.picks.length };
 }
 
+/** Игрок передумал насчёт КОНКРЕТНОГО шарика — повторный клик по уже своей же
+ *  отмеченной ячейке снимает именно эту отметку (а не всю ставку целиком —
+ *  для этого есть отдельная cancelMinesBet). Честно устроено математически:
+ *  T/R остальных, уже сделанных отметок никак не меняются задним числом (они
+ *  так и остаются зафиксированы на момент СВОЕГО клика), а личный "остаток"
+ *  игрока просто откатывается назад — ровно так, как будто снятого шарика
+ *  никогда не отмечали. Доказано отдельно (закон полного матожидания): EV
+ *  остаётся в точности ставка×RTP при любом порядке отметок/отмен, поскольку
+ *  цвет отменяемого шарика игроку всё равно никогда не показывается. Сам
+ *  шарик при этом никуда не девается — его можно отметить заново (или другой)
+ *  тем же кликом позже, в пределах того же раунда. */
+export function unpickMinesCell(tgId, cellIndex) {
+  if (phase !== 'bet') return { ok: false, error: 'not_pick_phase' };
+  const bet = bets.get(tgId);
+  if (!bet) return { ok: false, error: 'no_bet' };
+  const idx = bet.picks.findIndex(p => p.cellIndex === cellIndex);
+  if (idx === -1) return { ok: false, error: 'not_picked_by_you' };
+
+  const [removed] = bet.picks.splice(idx, 1);
+  bet.remaining.total++; bet.remaining[removed.color]++;
+  bet.pickedSet.delete(cellIndex);
+
+  const cap = maxPicksFor(bet.color);
+  return { ok: true, picksLeft: cap - bet.picks.length };
+}
+
 /** Снимок текущего состояния раунда — для админ-панели ("Прямо сейчас"), без
  *  разглашения ничего лишнего (никаких приватных данных других игроков). */
 export function getAdminLiveState() {

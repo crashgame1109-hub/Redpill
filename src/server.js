@@ -13,7 +13,7 @@ import { adminRouter, setLiveStateGetter } from './routes/admin.js';
 import { validateInitData } from './telegram.js';
 import { getOrCreateUser } from './db.js';
 import { setBroadcasters, getCurrentState, placeBet, startRoundLoop, getBoostInfoFor, getAdminLiveState as getClassicLiveState } from './roundLoop.js';
-import { setMinesBroadcasters, getMinesState, placeMinesBet, cancelMinesBet, pickMinesCell, startMinesLoop, getAdminLiveState as getMinesLiveState } from './sharedMines.js';
+import { setMinesBroadcasters, getMinesState, placeMinesBet, cancelMinesBet, pickMinesCell, unpickMinesCell, startMinesLoop, getAdminLiveState as getMinesLiveState } from './sharedMines.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -152,6 +152,14 @@ wss.on('connection', (ws) => {
       if (!ws.tgId) { send(ws, { type: 'error', context: 'mines_click', message: 'not_authenticated' }); return; }
       const result = pickMinesCell(ws.tgId, msg.cellIndex);
       if (!result.ok) { send(ws, { type: 'error', context: 'mines_click', message: result.error }); return; }
+      return;
+    }
+
+    if (msg.type === 'mines_unclick') {
+      if (!ws.tgId) { send(ws, { type: 'error', context: 'mines_unclick', message: 'not_authenticated' }); return; }
+      const result = unpickMinesCell(ws.tgId, msg.cellIndex);
+      if (!result.ok) { send(ws, { type: 'error', context: 'mines_unclick', message: result.error }); return; }
+      send(ws, { type: 'mines_cell_unpicked', cellIndex: msg.cellIndex, picksLeft: result.picksLeft });
       return;
     }
 

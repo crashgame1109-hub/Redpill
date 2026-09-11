@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>REDPILL / Reel — Админ-панель</title>
+<style>
+  :root{
+    --bg:#0a0b12; --card:#12131c; --line:rgba(255,255,255,.08); --ink:#eef1fb; --muted:#8b93ad;
+    --accent:#7c6cff; --good:#39ff9e; --bad:#ff5566; --gold:#ffb43d;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",Roboto,system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  a{color:inherit;}
+
+  /* ---------- Экран входа ---------- */
+  #loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .loginbox{width:100%;max-width:340px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px;text-align:center;}
+  .loginbox h1{font-size:17px;margin:0 0 6px;}
+  .loginbox p{color:var(--muted);font-size:12.5px;margin:0 0 20px;}
+  .loginbox input{width:100%;background:#0d0e16;border:1px solid var(--line);border-radius:10px;color:var(--ink);
+    padding:11px 13px;font-size:14px;margin-bottom:12px;outline:none;}
+  .loginbox input:focus{border-color:var(--accent);}
+  .loginbox button{width:100%;background:linear-gradient(180deg,#8f7fff,var(--accent));border:0;border-radius:10px;
+    color:#fff;font-weight:700;font-size:14px;padding:12px;cursor:pointer;}
+  .loginerr{color:var(--bad);font-size:12px;margin-top:10px;min-height:16px;}
+
+  /* ---------- Основной каркас ---------- */
+  #app{display:none;max-width:1280px;margin:0 auto;padding:20px 18px 60px;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;}
+  .topbar h1{font-size:19px;margin:0;}
+  .updated{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good);}
+  .logout{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:6px 12px;
+    font-size:12.5px;cursor:pointer;}
+  .logout:hover{color:var(--ink);border-color:var(--bad);}
+
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:22px;}
+  .tabbtn{background:var(--card);border:1px solid var(--line);color:var(--muted);border-radius:9px;
+    padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;}
+  .tabbtn.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .tabbtn:not(.on):hover{color:var(--ink);}
+
+  .tabpane{display:none;} .tabpane.on{display:block;}
+
+  h2.section{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);
+    margin:26px 0 10px;font-weight:700;}
+  h2.section:first-child{margin-top:0;}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px 16px;}
+  .card .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin-bottom:7px;}
+  .card .val{font-size:21px;font-weight:800;}
+  .card .sub{font-size:11px;color:var(--muted);margin-top:4px;}
+  .card .val.good{color:var(--good);} .card .val.bad{color:var(--bad);} .card .val.gold{color:var(--gold);}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;overflow:hidden;}
+  table.wrap{display:block;overflow-x:auto;white-space:nowrap;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10.5px;
+    letter-spacing:.03em;padding:10px 12px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02);}
+  td{padding:9px 12px;border-bottom:1px solid var(--line);}
+  tr:last-child td{border-bottom:0;}
+  tr.clickable{cursor:pointer;}
+  tr.clickable:hover{background:rgba(255,255,255,.03);}
+  .mono{font-family:"SF Mono","DM Mono",monospace;}
+  .mut{color:var(--muted);}
+  .tblwrap{overflow-x:auto;border-radius:12px;}
+
+  .searchrow{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+  .searchrow input{flex:1;min-width:180px;background:var(--card);border:1px solid var(--line);border-radius:9px;
+    color:var(--ink);padding:9px 12px;font-size:13px;outline:none;}
+  .searchrow input:focus{border-color:var(--accent);}
+  .searchrow select{background:var(--card);border:1px solid var(--line);border-radius:9px;color:var(--ink);
+    padding:9px 12px;font-size:13px;}
+  .btn{background:var(--accent);border:0;border-radius:8px;color:#fff;font-weight:700;font-size:12.5px;
+    padding:9px 16px;cursor:pointer;}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);}
+  .btn.danger{background:var(--bad);}
+  .btn.small{padding:5px 11px;font-size:11.5px;}
+  .pager{display:flex;justify-content:center;gap:8px;margin-top:14px;}
+
+  .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:flex-start;
+    justify-content:center;padding:40px 16px;overflow-y:auto;}
+  .modal-bg.on{display:flex;}
+  .modal{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;max-width:640px;width:100%;}
+  .modal h3{margin:0 0 4px;font-size:16px;}
+  .modal .close{float:right;background:transparent;border:0;color:var(--muted);font-size:20px;cursor:pointer;}
+
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;}
+  .badge.paid{background:rgba(57,255,158,.12);color:var(--good);}
+  .badge.pending{background:rgba(255,180,61,.14);color:var(--gold);}
+  .badge.failed{background:rgba(255,60,80,.12);color:var(--bad);}
+
+  .empty{text-align:center;color:var(--muted);padding:30px;font-size:13px;}
+  .loading{text-align:center;color:var(--muted);padding:20px;font-size:12.5px;}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="loginbox">
+    <h1>🔒 Админ-панель</h1>
+    <p>REDPILL / Reel — доступ только по токену из .env (ADMIN_TOKEN)</p>
+    <input type="password" id="tokenInput" placeholder="Токен" autocomplete="off">
+    <button id="loginBtn">Войти</button>
+    <div class="loginerr" id="loginErr"></div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <h1>📊 REDPILL / Reel — Админ-панель</h1>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div class="updated"><span class="dot" id="liveDot"></span><span id="updatedAt">—</span></div>
+      <button class="logout" id="logoutBtn">Выйти</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tabbtn on" data-tab="summary">Сводка</button>
+    <button class="tabbtn" data-tab="players">Игроки</button>
+    <button class="tabbtn" data-tab="transactions">Транзакции</button>
+    <button class="tabbtn" data-tab="withdrawals">Выводы</button>
+  </div>
+
+  <!-- ============ СВОДКА ============ -->
+  <div class="tabpane on" id="tab-summary">
+    <h2 class="section">Прямо сейчас</h2>
+    <div class="cards" id="liveCards"></div>
+
+    <h2 class="section">Доход (реальные деньги)</h2>
+    <div class="cards" id="revenueCards"></div>
+
+    <h2 class="section">Игроки</h2>
+    <div class="cards" id="playersCards"></div>
+
+    <h2 class="section">Экономика по периодам</h2>
+    <div class="tblwrap"><table id="economyTable"></table></div>
+    <p class="sub" style="color:var(--muted);font-size:11.5px;margin-top:8px;">
+      Целевой RTP: 97% в обычном раунде, 99% в золотом раунде Reel (см. redpill-backend/src/config.js).
+      «Прибыль дома» — в игровых монетах, это не реальные деньги (реальные деньги — раздел выше).
+    </p>
+
+    <h2 class="section">По режимам</h2>
+    <div class="tblwrap"><table id="modeTable"></table></div>
+
+    <h2 class="section">Топ игроков по ставкам</h2>
+    <div class="tblwrap"><table id="topTable"></table></div>
+  </div>
+
+  <!-- ============ ИГРОКИ ============ -->
+  <div class="tabpane" id="tab-players">
+    <div class="searchrow">
+      <input type="text" id="playerSearch" placeholder="Поиск по username или tg_id…">
+      <button class="btn" id="playerSearchBtn">Найти</button>
+    </div>
+    <div class="tblwrap"><table id="playersTable"></table></div>
+    <div class="pager">
+      <button class="btn ghost small" id="playersPrev">← Назад</button>
+      <span class="mut" id="playersPageInfo" style="align-self:center;font-size:12px;"></span>
+      <button class="btn ghost small" id="playersNext">Вперёд →</button>
+    </div>
+  </div>
+
+  <!-- ============ ТРАНЗАКЦИИ ============ -->
+  <div class="tabpane" id="tab-transactions">
+    <div class="searchrow">
+      <select id="txTypeFilter">
+        <option value="">Все типы</option>
+        <option value="bet">Ставки</option>
+        <option value="payout">Выплаты</option>
+        <option value="refund">Возвраты</option>
+        <option value="stars">Пополнение звёздами</option>
+        <option value="crypto">Пополнение криптой</option>
+        <option value="withdrawal">Выводы</option>
+      </select>
+      <button class="btn" id="txFilterBtn">Обновить</button>
+    </div>
+    <div class="tblwrap"><table id="txTable"></table></div>
+  </div>
+
+  <!-- ============ ВЫВОДЫ ============ -->
+  <div class="tabpane" id="tab-withdrawals">
+    <div class="tblwrap"><table id="wdTable"></table></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="playerModalBg">
+  <div class="modal">
+    <button class="close" id="playerModalClose">×</button>
+    <div id="playerModalBody"></div>
+  </div>
+</div>
+
+<script>
+// Панель снова часть того же бэкенда (один проект/деплой), просто открывается
+// на отдельном (под)домене — см. ADMIN_HOST в config.js и роутинг в server.js
+// по имени хоста. Раз это тот же сервер — источник запроса совпадает, пустая
+// строка = "тот же адрес, с которого открыта эта страница".
+const API = '';
+let TOKEN = sessionStorage.getItem('rp_admin_token') || '';
+
+function fmt(n){ return Math.round(n||0).toLocaleString('ru-RU'); }
+function fmtReal(n, digits){ return (Number(n)||0).toFixed(digits==null?2:digits); }
+function fmtPct(x){ return x==null ? '—' : (x*100).toFixed(2)+'%'; }
+function fmtDate(ts){ if(!ts) return '—'; const d=new Date(ts); return d.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function api(path, opts){
+  const res = await fetch(API+path, Object.assign({}, opts, { headers: Object.assign({'x-admin-token':TOKEN}, (opts&&opts.headers)||{}) }));
+  if(res.status===401){ doLogout(); throw new Error('unauthorized'); }
+  if(!res.ok){ const t=await res.text(); throw new Error(t||res.statusText); }
+  return res.json();
+}
+
+/* ---------- Вход ---------- */
+function doLogin(){
+  const t = document.getElementById('tokenInput').value.trim();
+  if(!t) return;
+  TOKEN = t;
+  api('/admin/stats').then(()=>{
+    sessionStorage.setItem('rp_admin_token', TOKEN);
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('app').style.display='block';
+    boot();
+  }).catch(()=>{
+    document.getElementById('loginErr').textContent='Неверный токен';
+    TOKEN='';
+  });
+}
+function doLogout(){
+  sessionStorage.removeItem('rp_admin_token');
+  TOKEN='';
+  document.getElementById('app').style.display='none';
+  document.getElementById('loginScreen').style.display='flex';
+}
+document.getElementById('loginBtn').onclick=doLogin;
+document.getElementById('tokenInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+document.getElementById('logoutBtn').onclick=doLogout;
+
+/* ---------- Вкладки ---------- */
+document.querySelectorAll('.tabbtn').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('on', x===b));
+    document.querySelectorAll('.tabpane').forEach(p=>p.classList.toggle('on', p.id==='tab-'+b.dataset.tab));
+    if(b.dataset.tab==='players') loadPlayers();
+    if(b.dataset.tab==='transactions') loadTransactions();
+    if(b.dataset.tab==='withdrawals') loadWithdrawals();
+  };
+});
+
+/* ---------- Сводка ---------- */
+function phaseLabel(mode, phase){
+  const map = { bet:'приём ставок', lock:'ставки закрыты', spin:'раскрутка', result:'результат', ended:'раскрытие', idle:'запуск' };
+  return map[phase] || phase || '—';
+}
+async function loadSummary(){
+  const s = await api('/admin/stats');
+  document.getElementById('updatedAt').textContent = 'обновлено '+fmtDate(s.ts);
+
+  const live = s.live||{};
+  document.getElementById('liveCards').innerHTML = [
+    card('Игроков онлайн', fmt(live.online), (live.online||0)+' подключений', 'good'),
+    card('REDPILL — раунд', '#'+fmt(live.classic?.nonce||0), 'фаза: '+phaseLabel('classic', live.classic?.phase)),
+    card('REDPILL — ставок в раунде', fmt(live.classic?.betsCount||0), fmt(live.classic?.betsAmount||0)+' монет'),
+    card('Reel — раунд', '#'+fmt(live.mines?.nonce||0), (live.mines?.golden ? '🌟 золотой раунд' : 'фаза: '+phaseLabel('mines', live.mines?.phase))),
+    card('Reel — ставок в раунде', fmt(live.mines?.betsCount||0), fmt(live.mines?.betsAmount||0)+' монет'),
+  ].join('');
+
+  const rev = s.revenue||{};
+  const cryptoLines = (rev.cryptoByAsset||[]).map(a=>`${fmtReal(a.n)} ${esc(a.asset||'?')} (${a.c})`).join(' · ') || 'пока нет';
+  const wdLines = (rev.withdrawnByAsset||[]).map(a=>`${fmtReal(a.n)} ${esc(a.asset||'?')} (${a.c})`).join(' · ') || 'пока нет';
+  document.getElementById('revenueCards').innerHTML = [
+    card('Собрано звёздами', '⭐ '+fmt(rev.starsSum), rev.starsCount+' платежей'),
+    card('Собрано криптой', rev.cryptoCount+' платежей', cryptoLines),
+    card('Выведено игрокам', rev.withdrawnByAsset&&rev.withdrawnByAsset.length ? rev.withdrawnByAsset.reduce((s,a)=>s+a.c,0)+' выплат' : '0 выплат', wdLines, 'bad'),
+    card('Заявок на вывод в ожидании', fmt(rev.pendingWithdrawalsCount), (rev.pendingByAsset||[]).map(a=>`${fmtReal(a.sum)} ${esc(a.asset||'?')}`).join(' · ')||'нет заявок', rev.pendingWithdrawalsCount>0?'gold':''),
+  ].join('');
+
+  const pl = s.players||{};
+  document.getElementById('playersCards').innerHTML = [
+    card('Всего игроков', fmt(pl.total)),
+    card('Новых за сутки', fmt(pl.newToday)),
+    card('Играли за сутки', fmt(pl.activeToday), 'за неделю: '+fmt(pl.activeWeek)),
+    card('Платящих', fmt(pl.paying), pl.total ? (pl.paying/pl.total*100).toFixed(1)+'% от всех' : ''),
+    card('Монет на балансах', fmt(pl.balances), 'обязательства перед игроками'),
+  ].join('');
+
+  const eco = s.economy||{};
+  const periods = [['За сутки','day'],['7 дней','week'],['30 дней','month'],['Всё время','allTime']];
+  document.getElementById('economyTable').innerHTML =
+    '<tr><th>Период</th><th>Ставок</th><th>Игроков</th><th>Оборот</th><th>Выплаты</th><th>Прибыль</th><th>RTP факт</th></tr>' +
+    periods.map(([label,key])=>{
+      const e=eco[key]||{};
+      return `<tr><td>${label}</td><td>${fmt(e.bets)}</td><td>${fmt(e.players)}</td><td>${fmt(e.staked)}</td>`+
+        `<td>${fmt(e.paid)}</td><td class="${e.profit>=0?'good':'bad'}" style="color:var(--${e.profit>=0?'good':'bad'})">${fmt(e.profit)}</td>`+
+        `<td>${fmtPct(e.rtp)}</td></tr>`;
+    }).join('');
+
+  const modes = s.byMode||[];
+  document.getElementById('modeTable').innerHTML =
+    '<tr><th>Режим</th><th>Ставок</th><th>Игроков</th><th>Оборот</th><th>Выплаты</th><th>Прибыль</th><th>RTP факт</th><th>Ср. ставка</th><th>Макс. выигрыш (монет)</th></tr>' +
+    modes.map(m=>`<tr><td><b>${esc(m.label)}</b></td><td>${fmt(m.bets)}</td><td>${fmt(m.players)}</td><td>${fmt(m.staked)}</td>`+
+      `<td>${fmt(m.paid)}</td><td style="color:var(--${m.profit>=0?'good':'bad'})">${fmt(m.profit)}</td>`+
+      `<td>${fmtPct(m.rtp)}</td><td>${fmt(m.avgBet)}</td><td>${fmt(m.maxWin)}</td></tr>`
+    ).join('');
+
+  const top = s.topPlayers||[];
+  document.getElementById('topTable').innerHTML =
+    '<tr><th>Игрок</th><th>Баланс</th><th>Ставок сделано</th><th>Всего поставлено</th><th>Всего выплачено</th><th>Макс. выигрыш</th></tr>' +
+    (top.length ? top.map(p=>`<tr class="clickable" onclick="openPlayer('${esc(p.tg_id)}')">`+
+      `<td>${esc(p.username||p.tg_id)}</td><td>${fmt(p.balance)}</td><td>${fmt(p.betsCount)}</td>`+
+      `<td>${fmt(p.totalStaked)}</td><td>${fmt(p.totalPaid)}</td><td>${fmt(p.maxWin)}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="empty">Пока нет данных</td></tr>');
+}
+function card(label, value, sub, cls){
+  return `<div class="card"><div class="lbl">${esc(label)}</div><div class="val${cls?' '+cls:''}">${value}</div>${sub?`<div class="sub">${esc(sub)}</div>`:''}</div>`;
+}
+
+/* ---------- Игроки ---------- */
+let playersOffset=0; const PLAYERS_LIMIT=50;
+async function loadPlayers(){
+  const search = document.getElementById('playerSearch').value.trim();
+  const data = await api(`/admin/players?limit=${PLAYERS_LIMIT}&offset=${playersOffset}&search=${encodeURIComponent(search)}`);
+  document.getElementById('playersTable').innerHTML =
+    '<tr><th>Username</th><th>tg_id</th><th>Баланс</th><th>Раундов (буст)</th><th>Регистрация</th><th>Активность</th></tr>' +
+    (data.rows.length ? data.rows.map(u=>`<tr class="clickable" onclick="openPlayer('${esc(u.tg_id)}')">`+
+      `<td>${esc(u.username||'—')}</td><td class="mono mut">${esc(u.tg_id)}</td><td>${fmt(u.balance)}</td>`+
+      `<td>${fmt(u.rounds_played)}</td><td class="mut">${fmtDate(u.created_at)}</td><td class="mut">${fmtDate(u.updated_at)}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="empty">Никого не найдено</td></tr>');
+  document.getElementById('playersPageInfo').textContent = `${playersOffset+1}–${playersOffset+data.rows.length} из ${data.total}`;
+  document.getElementById('playersPrev').disabled = playersOffset===0;
+  document.getElementById('playersNext').disabled = playersOffset+PLAYERS_LIMIT>=data.total;
+}
+document.getElementById('playerSearchBtn').onclick=()=>{ playersOffset=0; loadPlayers(); };
+document.getElementById('playerSearch').addEventListener('keydown', e=>{ if(e.key==='Enter'){ playersOffset=0; loadPlayers(); } });
+document.getElementById('playersPrev').onclick=()=>{ playersOffset=Math.max(0, playersOffset-PLAYERS_LIMIT); loadPlayers(); };
+document.getElementById('playersNext').onclick=()=>{ playersOffset+=PLAYERS_LIMIT; loadPlayers(); };
+
+async function openPlayer(tgId){
+  const d = await api('/admin/players/'+encodeURIComponent(tgId));
+  const u=d.user;
+  document.getElementById('playerModalBody').innerHTML = `
+    <h3>${esc(u.username||u.tg_id)}</h3>
+    <p class="mut mono" style="margin:0 0 16px;font-size:11.5px;">tg_id: ${esc(u.tg_id)} · регистрация: ${fmtDate(u.created_at)}</p>
+    <div class="cards" style="grid-template-columns:repeat(3,1fr);">
+      ${card('Баланс', fmt(u.balance))}
+      ${card('Раундов сыграно', fmt(u.rounds_played))}
+      ${card('Ставок сделано', fmt(d.betsCount))}
+      ${card('Всего поставлено', fmt(d.staked))}
+      ${card('Всего выплачено', fmt(d.paid))}
+      ${card('Прибыль дома по игроку', fmt(d.profit), null, d.profit>=0?'good':'bad')}
+      ${card('Макс. выигрыш', fmt(d.maxWin))}
+      ${card('Пополнений (реал)', fmtReal(d.depositsSum), d.depositsCount+' платежей')}
+      ${card('Выводов (реал)', fmtReal(d.withdrawalsSum), d.withdrawalsCount+' выплат')}
+    </div>
+    <h2 class="section">Последние операции</h2>
+    <div class="tblwrap"><table>
+      <tr><th>Когда</th><th>Тип</th><th>Монеты</th><th>Реал</th><th>Статус</th></tr>
+      ${d.recentTx.length ? d.recentTx.map(tx=>`<tr><td class="mut">${fmtDate(tx.created_at)}</td><td>${esc(tx.type)}</td>`+
+        `<td class="${tx.coins>=0?'good':'bad'}" style="color:var(--${tx.coins>=0?'good':'bad'})">${tx.coins>=0?'+':''}${fmt(tx.coins)}</td>`+
+        `<td>${tx.amount_real!=null?fmtReal(tx.amount_real)+' '+esc(tx.asset||''):'—'}</td>`+
+        `<td><span class="badge ${esc(tx.status)}">${esc(tx.status)}</span></td></tr>`).join('')
+        : '<tr><td colspan="5" class="empty">Нет операций</td></tr>'}
+    </table></div>
+  `;
+  document.getElementById('playerModalBg').classList.add('on');
+}
+document.getElementById('playerModalClose').onclick=()=>document.getElementById('playerModalBg').classList.remove('on');
+document.getElementById('playerModalBg').addEventListener('click', e=>{ if(e.target.id==='playerModalBg') e.currentTarget.classList.remove('on'); });
+
+/* ---------- Транзакции ---------- */
+async function loadTransactions(){
+  const type = document.getElementById('txTypeFilter').value;
+  const data = await api('/admin/transactions?limit=150'+(type?'&type='+type:''));
+  document.getElementById('txTable').innerHTML =
+    '<tr><th>Когда</th><th>Игрок</th><th>Тип</th><th>Монеты</th><th>Реал</th><th>Статус</th></tr>' +
+    (data.transactions.length ? data.transactions.map(tx=>`<tr>`+
+      `<td class="mut">${fmtDate(tx.created_at)}</td><td class="mono clickable" onclick="openPlayer('${esc(tx.tg_id)}')">${esc(tx.tg_id)}</td>`+
+      `<td>${esc(tx.type)}</td><td style="color:var(--${tx.coins>=0?'good':'bad'})">${tx.coins>=0?'+':''}${fmt(tx.coins)}</td>`+
+      `<td>${tx.amount_real!=null?fmtReal(tx.amount_real)+' '+esc(tx.asset||''):'—'}</td>`+
+      `<td><span class="badge ${esc(tx.status)}">${esc(tx.status)}</span></td></tr>`).join('')
+      : '<tr><td colspan="6" class="empty">Пока нет транзакций</td></tr>');
+}
+document.getElementById('txFilterBtn').onclick=loadTransactions;
+
+/* ---------- Выводы ---------- */
+async function loadWithdrawals(){
+  const data = await api('/admin/withdrawals');
+  const list = data.withdrawals||[];
+  document.getElementById('wdTable').innerHTML =
+    '<tr><th>Когда</th><th>Игрок</th><th>Сумма</th><th>Актив</th><th>Куда</th><th></th></tr>' +
+    (list.length ? list.map(w=>{
+      let dest='—'; try{ dest = JSON.parse(w.payload||'{}').destination || '—'; }catch(e){}
+      return `<tr><td class="mut">${fmtDate(w.created_at)}</td><td class="mono clickable" onclick="openPlayer('${esc(w.tg_id)}')">${esc(w.tg_id)}</td>`+
+        `<td>${fmtReal(w.amount_real)}</td><td>${esc(w.asset||'')}</td><td class="mono mut">${esc(dest)}</td>`+
+        `<td style="display:flex;gap:6px;"><button class="btn small" onclick="approveWd(${w.id})">Подтвердить</button>`+
+        `<button class="btn small danger" onclick="rejectWd(${w.id})">Отклонить</button></td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="empty">Нет заявок в ожидании</td></tr>');
+}
+async function approveWd(id){
+  if(!confirm('Подтвердить вывод #'+id+'? Деньги уйдут реально, через Crypto Pay.')) return;
+  try{ await api('/admin/withdrawals/'+id+'/approve', {method:'POST'}); loadWithdrawals(); }
+  catch(e){ alert('Ошибка: '+e.message); }
+}
+async function rejectWd(id){
+  if(!confirm('Отклонить вывод #'+id+'? Монеты вернутся игроку.')) return;
+  try{ await api('/admin/withdrawals/'+id+'/reject', {method:'POST'}); loadWithdrawals(); }
+  catch(e){ alert('Ошибка: '+e.message); }
+}
+
+/* ---------- Автообновление сводки ---------- */
+let refreshTimer=null;
+function boot(){
+  loadSummary().catch(e=>console.error(e));
+  clearInterval(refreshTimer);
+  refreshTimer=setInterval(()=>{
+    const active = document.querySelector('.tabbtn.on')?.dataset.tab;
+    if(active==='summary') loadSummary().catch(e=>console.error(e));
+  }, 6000);
+}
+if(TOKEN){
+  api('/admin/stats').then(()=>{
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('app').style.display='block';
+    boot();
+  }).catch(()=>{ TOKEN=''; sessionStorage.removeItem('rp_admin_token'); });
+}
+</script>
+</body>
+</html>

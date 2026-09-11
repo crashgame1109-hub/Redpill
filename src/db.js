@@ -69,8 +69,10 @@ export const creditCoins = db.transaction((tgId, coins, tx) => {
 });
 
 /** Списывает ставку, только если хватает баланса (атомарно). Возвращает
- *  обновлённого пользователя, либо null, если денег не хватило (ставка отклоняется). */
-export const debitForBet = db.transaction((tgId, amount, roundNonce) => {
+ *  обновлённого пользователя, либо null, если денег не хватило (ставка отклоняется).
+ *  mode — 'classic' | 'mines_shared', нужен только для отчётности в админке
+ *  (разбивка ставок/выплат по режимам игры), на саму механику списания не влияет. */
+export const debitForBet = db.transaction((tgId, amount, roundNonce, mode) => {
   const u = db.prepare('SELECT balance FROM users WHERE tg_id = ?').get(tgId);
   if (!u || u.balance < amount) return null;
   const now = Date.now();
@@ -78,12 +80,14 @@ export const debitForBet = db.transaction((tgId, amount, roundNonce) => {
   db.prepare(`
     INSERT INTO transactions (tg_id, type, status, coins, payload, created_at)
     VALUES (?, 'bet', 'paid', ?, ?, ?)
-  `).run(tgId, -amount, JSON.stringify({ round: roundNonce }), now);
+  `).run(tgId, -amount, JSON.stringify({ round: roundNonce, mode: mode || null }), now);
   return db.prepare('SELECT * FROM users WHERE tg_id = ?').get(tgId);
 });
 
 /** Зачисляет выигрыш и в той же транзакции увеличивает счётчик сыгранных раундов
- *  (нужен для буста новичка — сервер, а не клиент, решает, когда он заканчивается). */
+ *  (нужен для буста новичка — сервер, а не клиент, решает, когда он заканчивается).
+ *  Используется только классическим REDPILL (у Reel свой учёт через creditCoins,
+ *  т.к. там нет понятия "буст за сыгранные раунды"), поэтому mode здесь всегда 'classic'. */
 export const payoutBetAndBumpRounds = db.transaction((tgId, payout, roundNonce) => {
   const now = Date.now();
   if (payout > 0) {
@@ -92,7 +96,7 @@ export const payoutBetAndBumpRounds = db.transaction((tgId, payout, roundNonce) 
     db.prepare(`
       INSERT INTO transactions (tg_id, type, status, coins, payload, created_at)
       VALUES (?, 'payout', 'paid', ?, ?, ?)
-    `).run(tgId, payout, JSON.stringify({ round: roundNonce }), now);
+    `).run(tgId, payout, JSON.stringify({ round: roundNonce, mode: 'classic' }), now);
   } else {
     db.prepare(`UPDATE users SET rounds_played = rounds_played + 1, updated_at = ? WHERE tg_id = ?`).run(now, tgId);
   }

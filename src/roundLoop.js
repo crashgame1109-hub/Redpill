@@ -98,7 +98,7 @@ export function placeBet(tgId, who, side, amountRaw) {
   if (!user) return { ok: false, error: 'no_user' };
   const payoutMult = payoutMultFor(user.rounds_played);
 
-  const updated = debitForBet(tgId, amount, nonce);
+  const updated = debitForBet(tgId, amount, nonce, 'classic');
   if (!updated) return { ok: false, error: 'insufficient_balance' };
 
   bets.push({ tgId, who: who || 'Игрок', side, amount, payoutMult });
@@ -108,6 +108,16 @@ export function placeBet(tgId, who, side, amountRaw) {
 
 export function getBoostInfoFor(roundsPlayed) {
   return { payoutMult: payoutMultFor(roundsPlayed), boostLeft: Math.max(0, BOOST_ROUNDS - roundsPlayed) };
+}
+
+/** Снимок текущего состояния раунда — для админ-панели ("Прямо сейчас"), без
+ *  разглашения ничего лишнего (никаких приватных данных других игроков). */
+export function getAdminLiveState() {
+  return {
+    phase, nonce,
+    betsCount: bets.length,
+    betsAmount: bets.reduce((s, b) => s + b.amount, 0),
+  };
 }
 
 export function startRoundLoop() {

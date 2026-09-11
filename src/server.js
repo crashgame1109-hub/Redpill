@@ -2,16 +2,20 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
-import { PORT, CORS_ORIGIN } from './config.js';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { PORT, CORS_ORIGIN, ADMIN_HOST } from './config.js';
 import { balanceRouter } from './routes/balance.js';
 import { topupRouter } from './routes/topup.js';
 import { webhookRouter } from './routes/webhooks.js';
 import { withdrawRouter } from './routes/withdraw.js';
-import { adminRouter } from './routes/admin.js';
+import { adminRouter, setLiveStateGetter } from './routes/admin.js';
 import { validateInitData } from './telegram.js';
 import { getOrCreateUser } from './db.js';
-import { setBroadcasters, getCurrentState, placeBet, startRoundLoop, getBoostInfoFor } from './roundLoop.js';
+import { setBroadcasters, getCurrentState, placeBet, startRoundLoop, getBoostInfoFor, getAdminLiveState as getClassicLiveState } from './roundLoop.js';
+import { setMinesBroadcasters, getMinesState, placeMinesBet, cancelMinesBet, pickMinesCell, startMinesLoop, getAdminLiveState as getMinesLiveState } from './sharedMines.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(cors({ origin: CORS_ORIGIN === '*' ? true : CORS_ORIGIN.split(',') }));
 
@@ -21,6 +25,19 @@ app.use('/webhook/cryptopay', express.raw({ type: '*/*' }));
 app.use(express.json());
 
 app.get('/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
+
+/* Админ-панель — тот же самый бэкенд, тот же деплой, но открывается как
+ * будто отдельный сайт: если запрос пришёл на домен из ADMIN_HOST (например
+ * "admin.твой-домен.com"), корень "/" отдаёт страницу панели вместо игры.
+ * Настрой в DNS второй домен/поддомен, указывающий на ЭТОТ ЖЕ сервер, и
+ * пропиши его в ADMIN_HOST — переключать код или гонять два деплоя не нужно.
+ * Путь /admin-panel работает всегда, независимо от домена — как запасной
+ * вариант, если отдельный домен ещё не настроен. */
+app.get('/', (req, res, next) => {
+  if (ADMIN_HOST && req.hostname === ADMIN_HOST) return res.sendFile(path.join(__dirname, 'admin.html'));
+  next();
+});
+app.get('/admin-panel', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 
 app.use('/api', balanceRouter);
 app.use('/api/topup', topupRouter);
@@ -63,6 +80,19 @@ function sendToUser(tgId, msg) {
 }
 
 setBroadcasters(broadcastAll, sendToUser);
+setMinesBroadcasters(broadcastAll, sendToUser);
+
+// Реальное число уникальных онлайн-игроков (по tgId — несколько вкладок одного
+// и того же человека считаются за одного), а не число ставок в текущем раунде
+// (то, что уже показывает Reel — это отдельная, отдельно не трогаемая метрика).
+function broadcastOnlineCount() {
+  broadcastAll({ type: 'online_count', count: connectionsByUser.size });
+}
+setLiveStateGetter(() => ({
+  online: connectionsByUser.size,
+  classic: getClassicLiveState(),
+  mines: getMinesLiveState(),
+}));
 
 wss.on('connection', (ws) => {
   ws.tgId = null;
@@ -70,7 +100,9 @@ wss.on('connection', (ws) => {
 
   // Сразу шлём текущее состояние раунда — даже неавторизованный видит общий раунд и чат.
   send(ws, getCurrentState());
+  send(ws, getMinesState());
   send(ws, { type: 'chat_history', messages: chatHistory });
+  send(ws, { type: 'online_count', count: connectionsByUser.size });
 
   ws.on('message', (raw) => {
     let msg;
@@ -88,6 +120,7 @@ wss.on('connection', (ws) => {
       connectionsByUser.get(tgId).add(ws);
       const boost = getBoostInfoFor(user.rounds_played);
       send(ws, { type: 'auth_ok', tgId, username, balance: user.balance, roundsPlayed: user.rounds_played, ...boost });
+      broadcastOnlineCount(); // новый уникальный игрок мог зайти — обновляем счётчик у всех
       return;
     }
 
@@ -96,6 +129,29 @@ wss.on('connection', (ws) => {
       const result = placeBet(ws.tgId, ws.username, msg.side, msg.amount);
       if (!result.ok) { send(ws, { type: 'error', context: 'bet', message: result.error }); return; }
       send(ws, { type: 'bet_ok', balance: result.balance });
+      return;
+    }
+
+    if (msg.type === 'mines_bet') {
+      if (!ws.tgId) { send(ws, { type: 'error', context: 'mines_bet', message: 'not_authenticated' }); return; }
+      const result = placeMinesBet(ws.tgId, ws.username, msg.color, msg.amount);
+      if (!result.ok) { send(ws, { type: 'error', context: 'mines_bet', message: result.error }); return; }
+      send(ws, { type: 'mines_bet_ok', balance: result.balance });
+      return;
+    }
+
+    if (msg.type === 'mines_bet_cancel') {
+      if (!ws.tgId) { send(ws, { type: 'error', context: 'mines_bet_cancel', message: 'not_authenticated' }); return; }
+      const result = cancelMinesBet(ws.tgId);
+      if (!result.ok) { send(ws, { type: 'error', context: 'mines_bet_cancel', message: result.error }); return; }
+      send(ws, { type: 'mines_bet_cancel_ok', balance: result.balance });
+      return;
+    }
+
+    if (msg.type === 'mines_click') {
+      if (!ws.tgId) { send(ws, { type: 'error', context: 'mines_click', message: 'not_authenticated' }); return; }
+      const result = pickMinesCell(ws.tgId, msg.cellIndex);
+      if (!result.ok) { send(ws, { type: 'error', context: 'mines_click', message: result.error }); return; }
       return;
     }
 
@@ -115,12 +171,13 @@ wss.on('connection', (ws) => {
     if (ws.tgId && connectionsByUser.has(ws.tgId)) {
       const set = connectionsByUser.get(ws.tgId);
       set.delete(ws);
-      if (set.size === 0) connectionsByUser.delete(ws.tgId);
+      if (set.size === 0) { connectionsByUser.delete(ws.tgId); broadcastOnlineCount(); } // ушёл последний коннект этого игрока — он теперь офлайн
     }
   });
 });
 
 startRoundLoop();
+startMinesLoop();
 
 server.listen(PORT, () => {
   console.log(`REDPILL backend слушает порт ${PORT}`);

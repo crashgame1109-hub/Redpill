@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { listPendingWithdrawals, getWithdrawal, markWithdrawalPaid, rejectWithdrawal } from '../db.js';
-import { transferCrypto } from '../cryptopay.js';
+import { transferCrypto, getBalance } from '../cryptopay.js';
 import { ADMIN_TOKEN } from '../config.js';
 import {
   getEconomyByPeriod, getByMode, getPlayersOverview, getRevenue,
-  getTopPlayers, listPlayers, getPlayerDetail, getRecentTransactions,
+  getTopPlayers, listPlayers, getPlayerDetail, getRecentTransactions, listGames,
 } from '../adminStats.js';
 
 export const adminRouter = Router();
@@ -60,8 +60,18 @@ adminRouter.post('/withdrawals/:id/reject', (req, res) => {
 });
 
 /** GET /admin/stats — всё для главной сводки одним запросом: живое состояние
- *  раундов, экономика по периодам, разбивка по режимам, игроки, доход. */
-adminRouter.get('/stats', (req, res) => {
+ *  раундов, экономика по периодам, разбивка по режимам, игроки, доход, баланс
+ *  кошелька бота в Crypto Pay (реальная крипта, из которой платятся выводы). */
+adminRouter.get('/stats', async (req, res) => {
+  let wallet = null, walletError = null;
+  try {
+    const balances = await getBalance();
+    wallet = (balances || []).map(b => ({ asset: b.currency_code, available: Number(b.available), onhold: Number(b.onhold || 0) }));
+  } catch (e) {
+    // Не валим всю сводку, если Crypto Pay недоступен/токен не настроен — просто
+    // покажем остальное, а баланс кошелька будет отмечен как недоступный.
+    walletError = e.message;
+  }
   try {
     res.json({
       live: getLiveState(),
@@ -70,6 +80,7 @@ adminRouter.get('/stats', (req, res) => {
       players: getPlayersOverview(),
       revenue: getRevenue(),
       topPlayers: getTopPlayers(10),
+      wallet, walletError,
       ts: Date.now(),
     });
   } catch (e) {
@@ -111,6 +122,20 @@ adminRouter.get('/transactions', (req, res) => {
     res.json({ transactions: getRecentTransactions({ limit, type }) });
   } catch (e) {
     console.error('[admin/transactions]', e);
+    res.status(500).json({ error: 'internal_error', message: e.message });
+  }
+});
+
+/** GET /admin/games?mode=&limit=&offset= — список сыгранных игр (каждая ставка
+ *  сопоставлена со своим исходом), с фильтром по режиму — для вкладки "Игры" */
+adminRouter.get('/games', (req, res) => {
+  try {
+    const limit = Math.min(200, Number(req.query.limit) || 50);
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const mode = req.query.mode ? String(req.query.mode) : '';
+    res.json(listGames({ limit, offset, mode }));
+  } catch (e) {
+    console.error('[admin/games]', e);
     res.status(500).json({ error: 'internal_error', message: e.message });
   }
 });

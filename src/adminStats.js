@@ -88,10 +88,17 @@ export function getRevenue() {
     FROM transactions WHERE type='withdrawal' AND status='pending' GROUP BY asset
   `).all();
   const cryptoCount = cryptoByAsset.reduce((s, r) => s + r.c, 0);
+  // Чистая прибыль — отдельно по каждому активу (доход минус выводы ТОГО ЖЕ актива;
+  // звёзды вывести нельзя — см. withdraw.js, ASSETS=['USDT','TON'] — поэтому для
+  // звёзд чистая прибыль равна всему доходу целиком, вычитать там нечего).
+  const netByAsset = cryptoByAsset.map(c => {
+    const withdrawn = withdrawnByAsset.find(w => w.asset === c.asset);
+    return { asset: c.asset, net: c.n - (withdrawn ? withdrawn.n : 0) };
+  });
   return {
-    starsSum: starsGross.n, starsCount: starsGross.c,
+    starsSum: starsGross.n, starsCount: starsGross.c, starsNet: starsGross.n,
     cryptoByAsset, cryptoCount,
-    withdrawnByAsset,
+    withdrawnByAsset, netByAsset,
     payCount: starsGross.c + cryptoCount,
     pendingByAsset, pendingWithdrawalsCount: pendingByAsset.reduce((s, r) => s + r.n, 0),
   };
@@ -151,4 +158,37 @@ export function getPlayerDetail(tgId) {
 export function getRecentTransactions({ limit = 100, type = null } = {}) {
   if (type) return db.prepare(`SELECT * FROM transactions WHERE type=? ORDER BY created_at DESC LIMIT ?`).all(type, limit);
   return db.prepare(`SELECT * FROM transactions ORDER BY created_at DESC LIMIT ?`).all(limit);
+}
+
+/** Список сыгранных игр — каждая ставка сопоставляется со своим исходом (выплата/
+ *  возврат/ничего = проигрыш) по совпадению игрока+раунда+режима. Поддерживает
+ *  фильтр по режиму (classic/mines_shared) для вкладки "Игры" в админке. Ставки
+ *  без mode (сделанные ДО того, как разметка появилась) фильтром по режиму не
+ *  находятся, но видны при значении "Все режимы". */
+export function listGames({ limit = 50, offset = 0, mode = '' } = {}) {
+  const modeFilter = mode ? `AND json_extract(b.payload,'$.mode') = @mode` : '';
+  const rows = db.prepare(`
+    SELECT
+      b.id, b.tg_id, u.username, b.created_at,
+      json_extract(b.payload,'$.round') as round,
+      json_extract(b.payload,'$.mode') as mode,
+      -b.coins as staked,
+      p.coins as payout,
+      CASE WHEN p.id IS NOT NULL THEN 'win'
+           WHEN rf.id IS NOT NULL THEN 'refund'
+           ELSE 'lose' END as result
+    FROM transactions b
+    LEFT JOIN users u ON u.tg_id = b.tg_id
+    LEFT JOIN transactions p ON p.tg_id = b.tg_id AND p.type = 'payout'
+      AND json_extract(p.payload,'$.round') = json_extract(b.payload,'$.round')
+      AND (json_extract(p.payload,'$.mode') IS json_extract(b.payload,'$.mode'))
+    LEFT JOIN transactions rf ON rf.tg_id = b.tg_id AND rf.type = 'refund'
+      AND json_extract(rf.payload,'$.round') = json_extract(b.payload,'$.round')
+      AND (json_extract(rf.payload,'$.mode') IS json_extract(b.payload,'$.mode'))
+    WHERE b.type = 'bet' ${modeFilter}
+    ORDER BY b.created_at DESC
+    LIMIT @limit OFFSET @offset
+  `).all({ mode, limit, offset });
+  const total = db.prepare(`SELECT COUNT(*) n FROM transactions b WHERE b.type='bet' ${modeFilter}`).get({ mode }).n;
+  return { rows, total };
 }

@@ -121,6 +121,7 @@
 
   <div class="tabs">
     <button class="tabbtn on" data-tab="summary">Сводка</button>
+    <button class="tabbtn" data-tab="games">Игры</button>
     <button class="tabbtn" data-tab="players">Игроки</button>
     <button class="tabbtn" data-tab="transactions">Транзакции</button>
     <button class="tabbtn" data-tab="withdrawals">Выводы</button>
@@ -133,6 +134,18 @@
 
     <h2 class="section">Доход (реальные деньги)</h2>
     <div class="cards" id="revenueCards"></div>
+
+    <h2 class="section">Чистая прибыль (доход минус выводы, по каждому активу)</h2>
+    <div class="cards" id="netProfitCards"></div>
+    <p class="sub" style="color:var(--muted);font-size:11.5px;margin-top:8px;">
+      Звёзды вывести нельзя (см. withdraw.js) — поэтому для них чистая прибыль
+      равна всему доходу. Крипта — доход минус реально выведенное, отдельно по
+      USDT и по TON (складывать разные активы напрямую нельзя — разный курс).
+    </p>
+
+    <h2 class="section">Баланс кошелька (Crypto Pay)</h2>
+    <div class="cards" id="walletCards"></div>
+    <p class="sub" style="color:var(--muted);font-size:11.5px;margin-top:8px;" id="walletNote"></p>
 
     <h2 class="section">Игроки</h2>
     <div class="cards" id="playersCards"></div>
@@ -149,6 +162,24 @@
 
     <h2 class="section">Топ игроков по ставкам</h2>
     <div class="tblwrap"><table id="topTable"></table></div>
+  </div>
+
+  <!-- ============ ИГРЫ ============ -->
+  <div class="tabpane" id="tab-games">
+    <div class="searchrow">
+      <select id="gameModeFilter">
+        <option value="">Все режимы</option>
+        <option value="classic">REDPILL</option>
+        <option value="mines_shared">Reel</option>
+      </select>
+      <button class="btn" id="gameFilterBtn">Обновить</button>
+    </div>
+    <div class="tblwrap"><table id="gamesTable"></table></div>
+    <div class="pager">
+      <button class="btn ghost small" id="gamesPrev">← Назад</button>
+      <span class="mut" id="gamesPageInfo" style="align-self:center;font-size:12px;"></span>
+      <button class="btn ghost small" id="gamesNext">Вперёд →</button>
+    </div>
   </div>
 
   <!-- ============ ИГРОКИ ============ -->
@@ -249,6 +280,7 @@ document.querySelectorAll('.tabbtn').forEach(b=>{
     if(b.dataset.tab==='players') loadPlayers();
     if(b.dataset.tab==='transactions') loadTransactions();
     if(b.dataset.tab==='withdrawals') loadWithdrawals();
+    if(b.dataset.tab==='games') loadGames();
   };
 });
 
@@ -279,6 +311,26 @@ async function loadSummary(){
     card('Выведено игрокам', rev.withdrawnByAsset&&rev.withdrawnByAsset.length ? rev.withdrawnByAsset.reduce((s,a)=>s+a.c,0)+' выплат' : '0 выплат', wdLines, 'bad'),
     card('Заявок на вывод в ожидании', fmt(rev.pendingWithdrawalsCount), (rev.pendingByAsset||[]).map(a=>`${fmtReal(a.sum)} ${esc(a.asset||'?')}`).join(' · ')||'нет заявок', rev.pendingWithdrawalsCount>0?'gold':''),
   ].join('');
+
+  // Чистая прибыль — отдельная карточка на каждый актив (звёзды + каждая крипта),
+  // не складываем разные активы в одно число (разный курс, это было бы неверно).
+  const netCards = [ card('⭐ Звёзды (вывод недоступен)', fmtReal(rev.starsNet,0), 'весь доход = чистая прибыль', 'good') ];
+  (rev.netByAsset||[]).forEach(a=>{
+    netCards.push(card(esc(a.asset)+' — чистыми', fmtReal(a.net), 'доход минус реально выведенное', a.net>=0?'good':'bad'));
+  });
+  document.getElementById('netProfitCards').innerHTML = netCards.join('');
+
+  // Баланс кошелька Crypto Pay — реальные деньги, из которых платятся выводы.
+  const walletBox=document.getElementById('walletCards'), walletNote=document.getElementById('walletNote');
+  if(s.walletError){
+    walletBox.innerHTML = card('Баланс кошелька', '—', 'недоступно: '+s.walletError, 'bad');
+    walletNote.textContent = 'Проверь CRYPTO_PAY_TOKEN в переменных окружения — без него Crypto Pay API не отвечает.';
+  } else if(s.wallet && s.wallet.length){
+    walletBox.innerHTML = s.wallet.map(w=>card(esc(w.asset), fmtReal(w.available), w.onhold>0?`+ ${fmtReal(w.onhold)} в холде`:'')).join('');
+    walletNote.textContent = 'Именно отсюда реально уходят деньги при подтверждении вывода — если баланс ниже суммы заявок в ожидании, пополни кошелёк в @CryptoBot.';
+  } else {
+    walletBox.innerHTML = card('Баланс кошелька', '—', 'на кошельке пока пусто (или ни разу не пополнялся)');
+  }
 
   const pl = s.players||{};
   document.getElementById('playersCards').innerHTML = [
@@ -319,6 +371,30 @@ async function loadSummary(){
 function card(label, value, sub, cls){
   return `<div class="card"><div class="lbl">${esc(label)}</div><div class="val${cls?' '+cls:''}">${value}</div>${sub?`<div class="sub">${esc(sub)}</div>`:''}</div>`;
 }
+
+/* ---------- Игры ---------- */
+let gamesOffset=0; const GAMES_LIMIT=50;
+const MODE_LABEL={classic:'REDPILL', mines_shared:'Reel'};
+const RESULT_LABEL={win:'✅ выигрыш', lose:'❌ проигрыш', refund:'↩ возврат'};
+async function loadGames(){
+  const mode = document.getElementById('gameModeFilter').value;
+  const data = await api(`/admin/games?limit=${GAMES_LIMIT}&offset=${gamesOffset}`+(mode?`&mode=${mode}`:''));
+  document.getElementById('gamesTable').innerHTML =
+    '<tr><th>Когда</th><th>Игрок</th><th>Режим</th><th>Раунд</th><th>Ставка</th><th>Исход</th><th>Выплата</th></tr>' +
+    (data.rows.length ? data.rows.map(g=>`<tr>`+
+      `<td class="mut">${fmtDate(g.created_at)}</td><td class="mono clickable" onclick="openPlayer('${esc(g.tg_id)}')">${esc(g.username||g.tg_id)}</td>`+
+      `<td>${esc(MODE_LABEL[g.mode]||g.mode||'—')}</td><td class="mono mut">#${fmt(g.round)}</td>`+
+      `<td>${fmt(g.staked)}</td><td>${esc(RESULT_LABEL[g.result]||g.result)}</td>`+
+      `<td style="color:var(--${g.result==='win'?'good':'muted'})">${g.payout!=null?'+'+fmt(g.payout):'—'}</td></tr>`).join('')
+      : '<tr><td colspan="7" class="empty">Пока нет сыгранных игр</td></tr>');
+  document.getElementById('gamesPageInfo').textContent = `${gamesOffset+1}–${gamesOffset+data.rows.length} из ${data.total}`;
+  document.getElementById('gamesPrev').disabled = gamesOffset===0;
+  document.getElementById('gamesNext').disabled = gamesOffset+GAMES_LIMIT>=data.total;
+}
+document.getElementById('gameFilterBtn').onclick=()=>{ gamesOffset=0; loadGames(); };
+document.getElementById('gameModeFilter').addEventListener('change', ()=>{ gamesOffset=0; loadGames(); });
+document.getElementById('gamesPrev').onclick=()=>{ gamesOffset=Math.max(0, gamesOffset-GAMES_LIMIT); loadGames(); };
+document.getElementById('gamesNext').onclick=()=>{ gamesOffset+=GAMES_LIMIT; loadGames(); };
 
 /* ---------- Игроки ---------- */
 let playersOffset=0; const PLAYERS_LIMIT=50;
